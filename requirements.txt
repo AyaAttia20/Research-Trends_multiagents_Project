@@ -1,12 +1,29 @@
-pysqlite3-binary
+# Core LLM and agent orchestration
 crewai==0.30.5
 langchain>=0.1.10,<0.2.0
 openai>=1.0.0
+
+# SQLite compatibility for langchain agents
+pysqlite3-binary
+
+# Document and web scraping support
+beautifulsoup4
 unstructured
-chromadb==0.4.18
+requests>=2.28,<2.32
+feedparser
 arxiv
+
+# Tokenization and embeddings
+tiktoken
+
+# Local embedding DB (optional use with langchain)
+chromadb==0.4.18
+
+# Streamlit for UI
 streamlit
 python-dotenv
-tiktoken
-beautifulsoup4
-requests>=2.28,<2.32
+
+# Visualization (for trend display, e.g., word clouds, charts)
+matplotlib
+wordcloud
+pandas
