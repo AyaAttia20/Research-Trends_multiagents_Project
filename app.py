@@ -1,151 +1,31 @@
-import sys
-import pysqlite3
-sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
-
+# research_trends_app.py
 import streamlit as st
-import os
-import requests
-import feedparser
-import pandas as pd
-import matplotlib.pyplot as plt
-from wordcloud import WordCloud
-from streamlit_tags import st_tags
-from crewai import Agent, Task, Crew
-from langchain.chat_models import ChatOpenAI
-from langchain.tools import Tool
-import warnings
+from research_agents import create_crew
 
-warnings.filterwarnings('ignore')
+st.set_page_config(page_title="📊 Research Trends Tracker", layout="wide")
+st.title("📈 Research Trends Tracker")
+st.markdown("Get insights into trending research topics, papers, and top authors using agents and LLMs.")
 
+user_input = st.text_input("🔍 Enter a research topic:", value="generative AI")
 
-def fetch_arxiv(topic):
-    url = f'http://export.arxiv.org/api/query?search_query=all:{topic}&start=0&max_results=10'
-    response = requests.get(url)
-    feed = feedparser.parse(response.text)
-    results = []
-    for entry in feed.entries:
-        results.append({
-            "title": entry.title,
-            "summary": entry.summary,
-            "authors": [author.name for author in entry.authors]
-        })
-    return results
+if st.button("🚀 Run Research Agents"):
+    with st.spinner("Running multi-agent system..."):
+        crew = create_crew()
+        final_output = crew.kickoff(inputs={"topic": user_input})
 
-def arxiv_fetch_wrapper(input):
-    if isinstance(input, dict):
-        topic = input.get("topic") or input.get("subject_area") or next(iter(input.values()))
-    else:
-        topic = input
-    return fetch_arxiv(topic)
+    st.success("✅ Analysis Complete!")
 
-# ----------------------- Streamlit UI -----------------------
-st.set_page_config(page_title="Research Trends Tracker", layout="wide")
-st.title("🔬 Research Trends Tracker")
+    sections = {
+        "Fetched Papers": "📚 Papers",
+        "Trends": "📈 Trending Keywords",
+        "Authors": "👩\u200d🔬 Top Authors"
+    }
 
-api_key = st.text_input("🔑 Enter your OpenRouter API Key", type="password")
-topic = st.text_input("📚 Enter a research topic", "Artificial Intelligence")
-run_button = st.button("🚀 Run Analysis")
-
-if run_button:
-    if not api_key:
-        st.error("Please enter your OpenRouter API Key before running.")
-    else:
-        with st.spinner("Running multi-agent crew..."):
-
-            llm = ChatOpenAI(
-                model_name="mistralai/mistral-7b-instruct",
-                openai_api_base="https://openrouter.ai/api/v1",
-                openai_api_key=api_key,
-                temperature=0.7
-            )
-
-            arxiv_tool = Tool(
-                name="ArxivResearchFetcher",
-                func=arxiv_fetch_wrapper,
-                description="Fetches recent research papers from arXiv given a topic string or a dict with 'topic'",
-                return_direct=True
-            )
-
-            fetcher = Agent(
-                role="Research Fetcher",
-                goal="Find the latest research papers on a given topic",
-                tools=[arxiv_tool],
-                backstory="Expert at gathering academic papers using arXiv.",
-                verbose=True,
-                llm=llm
-            )
-
-            analyzer = Agent(
-                role="Trend Analyzer",
-                goal="Analyze recent papers and extract trending keywords and hot topics",
-                verbose=True,
-                backstory="Skilled in text mining and NLP to extract useful trends.",
-                llm=llm
-            )
-
-            reporter = Agent(
-                role="Author & Institution Reporter",
-                goal="Find top authors and institutions publishing in the research field",
-                verbose=True,
-                backstory="Specializes in identifying the key contributors in academic fields.",
-                llm=llm
-            )
-
-            fetch_task = Task(
-                description="Fetch recent research papers from arXiv for the topic {topic}.",
-                expected_output="A list of paper titles and abstracts.",
-                agent=fetcher,
-                async_execution=False
-            )
-
-            trend_task = Task(
-                description=(
-                    "Analyze the following list of research papers (title, summary, authors) on the topic '{topic}' "
-                    "and identify the top 5 trending keywords or research themes in bullet points."
-                ),
-                expected_output="A list of 5 trending research topics or keywords with descriptions.",
-                agent=analyzer,
-                context=[fetch_task],
-                async_execution=False
-            )
-
-            author_task = Task(
-                description=(
-                    "Based on the list of paper titles, authors, and summaries for the topic {topic}, "
-                    "identify the most frequently mentioned authors. Include affiliations if available."
-                ),
-                expected_output=(
-                    "- A list of top 3–5 authors, their affiliations, and publication counts.\n"
-                    "- Format: Author Name – Institution (N papers)"
-                ),
-                agent=reporter,
-                context=[fetch_task],
-                async_execution=False
-            )
-
-            crew = Crew(
-                agents=[fetcher, analyzer, reporter],
-                tasks=[fetch_task, trend_task, author_task],
-                verbose=True
-            )
-
-            inputs = {"topic": topic}
-            result = crew.kickoff(inputs=inputs)
-            
-            # Now access task outputs from results
-            fetch_output = fetch_task.result.output
-            trend_output = trend_task.result.output
-            author_output = author_task.result.output
-            
-            # Display nicely in Streamlit
-            st.success("✅ Crew run complete!")
-            
-            st.subheader("📚 Papers Fetched")
-            st.markdown(fetch_output)
-            
-            st.subheader("📈 Trending Topics")
-            keywords_list = [line.strip("- ") for line in trend_output.split("\n") if line.startswith("-")]
-            st.markdown("\n".join([f"✅ {kw}" for kw in keywords_list]))
-            
-            st.subheader("👩‍🔬 Top Authors & Institutions")
-            st.markdown(author_output)
+    for section, title in sections.items():
+        st.subheader(title)
+        try:
+            part = final_output.split(f"[{section}]")[1].split("[")[0].strip()
+            for line in part.split("\n"):
+                st.markdown(f"- {line.strip('- ')}")
+        except IndexError:
+            st.warning(f"{section} section not found in output.")
