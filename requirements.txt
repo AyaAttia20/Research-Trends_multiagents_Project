@@ -10,8 +10,7 @@ pysqlite3-binary
 beautifulsoup4
 unstructured
 requests>=2.28,<2.32
-feedparser
-arxiv
+feedparser  # still useful for any RSS parsing
 
 # Tokenization and embeddings
 tiktoken
@@ -24,9 +23,11 @@ streamlit
 python-dotenv
 streamlit-tags
 
-# Visualization (for trend display, e.g., word clouds, charts)
+# Visualization
 matplotlib
 wordcloud
 pandas
 plotly
 
+# Optional: JSON validation and safety
+json5
