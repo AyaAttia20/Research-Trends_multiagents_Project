@@ -5,42 +5,41 @@ sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
 import streamlit as st
 import requests
 import warnings
-import pandas as pd
-import re
-import plotly.express as px
-import feedparser
 from crewai import Agent, Task, Crew
 from langchain.chat_models import ChatOpenAI
 from langchain.tools import Tool
 
+import pandas as pd
+import plotly.express as px
+import re
+
 warnings.filterwarnings("ignore")
 
-# -------------------------
-# Semantic Scholar Fetcher
-# -------------------------
-def fetch_semantic_scholar(topic, limit=10):
-    url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={topic}&limit={limit}&fields=title,abstract,authors,url,year"
-    response = requests.get(url)
+# Semantic Scholar API instead of arXiv
+def fetch_semantic_scholar(topic):
+    url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={topic}&limit=10&fields=title,abstract,url,authors"
+    headers = {"User-Agent": "Research-Trend-App"}
+    response = requests.get(url, headers=headers)
     data = response.json()
-    papers = []
-
-    for item in data.get("data", []):
-        papers.append({
-            "title": item.get("title", "No title"),
-            "summary": item.get("abstract", "No abstract"),
-            "authors": [author.get("name") for author in item.get("authors", [])],
-            "url": item.get("url", "#"),
-            "year": item.get("year", "Unknown")
+    results = []
+    for paper in data.get("data", []):
+        results.append({
+            "title": paper.get("title"),
+            "summary": paper.get("abstract") or "No abstract available.",
+            "authors": [author.get("name") for author in paper.get("authors", [])],
+            "url": paper.get("url")
         })
-    return papers
+    return results
 
-def semantic_scholar_wrapper(input):
-    topic = input["topic"] if isinstance(input, dict) else input
+def fetch_wrapper(input):
+    if isinstance(input, dict):
+        topic = input.get("topic") or next(iter(input.values()))
+    else:
+        topic = input
     return fetch_semantic_scholar(topic)
 
-# -------------------------
+
 # Streamlit UI
-# -------------------------
 st.set_page_config(page_title="Research Trends Tracker", layout="wide")
 st.title("🔬 Research Trends Tracker")
 
@@ -59,7 +58,7 @@ if run_button:
             try:
                 llm = ChatOpenAI(
                     model_name="mistralai/mistral-7b-instruct",
-                    base_url="https://openrouter.ai/api/v1", 
+                    base_url="https://openrouter.ai/api/v1",
                     api_key=api_key,
                     temperature=0.7
                 )
@@ -67,71 +66,60 @@ if run_button:
                 st.error(f"❌ Failed to initialize LLM: {str(e)}")
                 st.stop()
 
-            # Tool
-            fetch_tool = Tool(
+            # Tool & Agents
+            tool = Tool(
                 name="SemanticScholarFetcher",
-                func=semantic_scholar_wrapper,
-                description="Fetches recent research papers from Semantic Scholar given a topic string",
+                func=fetch_wrapper,
+                description="Fetches latest research papers using Semantic Scholar API",
                 return_direct=True
             )
 
-            # Agents
             fetcher = Agent(
                 role="Research Fetcher",
-                goal="Find the latest research papers on a given topic",
-                tools=[fetch_tool],
-                backstory="Expert at gathering academic papers from Semantic Scholar.",
+                goal="Fetch recent research papers on a topic",
+                tools=[tool],
+                backstory="Expert at finding papers.",
                 verbose=True,
                 llm=llm
             )
 
             analyzer = Agent(
                 role="Trend Analyzer",
-                goal="Analyze recent papers and extract trending keywords and hot topics",
-                backstory="Skilled in text mining and NLP to extract useful trends.",
+                goal="Extract trending keywords",
+                backstory="Skilled in NLP to detect research trends.",
                 verbose=True,
                 llm=llm
             )
 
             reporter = Agent(
-                role="Author & Institution Reporter",
-                goal="Find top authors and institutions publishing in the research field",
-                backstory="Specializes in identifying the key contributors in academic fields.",
+                role="Author Reporter",
+                goal="Identify top authors and institutions",
+                backstory="Expert in mapping contributors in academia.",
                 verbose=True,
                 llm=llm
             )
 
             # Tasks
             fetch_task = Task(
-                description=f"Fetch recent research papers from Semantic Scholar for the topic '{topic}'.",
-                expected_output="A list of paper titles, abstracts, authors, and links.",
+                description=f"Fetch latest 10 research papers on '{topic}'.",
+                expected_output="List of papers with title, abstract, authors, and URL.",
                 agent=fetcher
             )
 
             trend_task = Task(
-                description=(
-                    f"Analyze the list of research papers (title, summary, authors) on the topic '{topic}' "
-                    "and identify the top 5-10 trending keywords or research themes in bullet points."
-                ),
-                expected_output="A list of 5–10 trending research topics or keywords with descriptions.",
+                description="Extract top 10 trending keywords from titles and abstracts.",
+                expected_output="List of 10 trending keywords with short explanations.",
                 agent=analyzer,
                 context=[fetch_task]
             )
 
             author_task = Task(
-                description=(
-                    f"Based on the list of paper titles, authors, and summaries for the topic '{topic}', "
-                    "identify the most frequently mentioned authors. Include affiliations if available."
-                ),
-                expected_output=(
-                    "- A list of top 3–5 authors, their affiliations if possible, and publication counts.\n"
-                    "- Format: Author Name – Institution (N papers)"
-                ),
+                description="List top 5 authors by frequency from papers. Format: Name – Institution (N papers).",
+                expected_output="List of top 5 authors and institutions.",
                 agent=reporter,
                 context=[fetch_task]
             )
 
-            # Crew Setup
             crew = Crew(
                 agents=[fetcher, analyzer, reporter],
                 tasks=[fetch_task, trend_task, author_task],
@@ -144,40 +132,51 @@ if run_button:
 
                 st.success("✅ Analysis Complete!")
 
-                # 1. Display fetched papers
-                st.markdown("## 📚 Research Papers")
+                # 1. Papers
+                st.markdown("## 📚 Latest Papers")
+                raw_output = str(fetch_task.output)
                 try:
-                    papers_raw = eval(fetch_task.output.value if hasattr(fetch_task.output, "value") else fetch_task.output)
-                    for paper in papers_raw[:10]:
-                        st.markdown(f"📄 **[{paper['title']}]({paper['url']})**  \n📝 {paper['summary'][:300]}...  \n👨‍🔬 _Authors_: {', '.join(paper['authors'])}  \n📅 _Year_: {paper['year']}")
-                        st.markdown("---")
-                except Exception as e:
-                    st.warning(f"Could not parse papers: {e}")
+                    papers = eval(raw_output) if raw_output.startswith("[{") else []
+                except Exception:
+                    papers = []
 
-                # 2. Keyword Trends Chart
+                if papers:
+                    for i, paper in enumerate(papers[:10]):
+                        with st.expander(f"📄 {paper['title']}"):
+                            st.markdown(f"**🧠 Abstract:** {paper['summary']}")
+                            st.markdown(f"**✍️ Authors:** {', '.join(paper['authors'])}")
+                            st.markdown(f"[🔗 Read More]({paper['url']})")
+                else:
+                    st.warning("⚠️ Could not parse papers.")
+
+                # 2. Trending Keywords
                 st.markdown("## 📈 Trending Keywords")
-                trend_lines = trend_task.output.value.split("\n") if hasattr(trend_task.output, "value") else trend_task.output.split("\n")
-                keyword_data = []
+                trend_text = str(trend_task.output)
+                trend_lines = trend_text.strip().split("\n")
+                keywords = []
                 for line in trend_lines:
-                    match = re.match(r"[-•]?\s*(.+?):", line.strip())
+                    match = re.match(r"[-•]\s*(.+?):", line)
                     if match:
-                        keyword_data.append(match.group(1).strip())
+                        keyword = match.group(1)
+                        keywords.append(keyword)
 
-                if keyword_data:
-                    df_keywords = pd.DataFrame({'Keyword': keyword_data[:10]})
-                    fig = px.bar(df_keywords['Keyword'].value_counts().reset_index(), x='index', y='Keyword',
-                                 labels={'index': 'Keyword', 'Keyword': 'Count'},
-                                 title="Top Trending Keywords", text_auto=True)
+                if keywords:
+                    df_keywords = pd.DataFrame({'Keyword': keywords[:10]})
+                    fig = px.bar(df_keywords, x='Keyword', title="Top Trending Keywords", color='Keyword')
                     st.plotly_chart(fig, use_container_width=True)
                 else:
                     st.info("⚠️ No keywords found to visualize.")
 
-                # 3. Authors
+                # 3. Top Authors
                 st.markdown("## 👩‍🔬 Top Authors and Institutions")
-                author_lines = author_task.output.value.split("\n") if hasattr(author_task.output, "value") else author_task.output.split("\n")
+                author_lines = str(author_task.output).split("\n")
+                shown = 0
                 for line in author_lines:
-                    if "–" in line:
+                    if "–" in line and shown < 5:
                         st.markdown(f"👤 **{line.strip()}**")
+                        shown += 1
+                if shown == 0:
+                    st.info("⚠️ No authors data found.")
 
             except Exception as e:
                 st.error(f"❌ Error during execution: {str(e)}")
