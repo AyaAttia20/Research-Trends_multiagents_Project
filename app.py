@@ -131,41 +131,21 @@ if run_button:
 
             inputs = {"topic": topic}
             result = crew.kickoff(inputs=inputs)
-
-            # Visual Outputs
+            
+            # Now access task outputs from results
+            fetch_output = fetch_task.result.output
+            trend_output = trend_task.result.output
+            author_output = author_task.result.output
+            
+            # Display nicely in Streamlit
             st.success("✅ Crew run complete!")
-
-            tab1, tab2, tab3, tab4 = st.tabs(["📄 Summary", "📈 Trends", "📚 Papers", "👥 Authors"])
-
-            with tab1:
-                st.markdown(result)
-
-            with tab2:
-                st.subheader("📌 Trending Keywords")
-                keywords_list = [line.strip("- ") for line in trend_task.output.split("\n") if line.startswith("-")]
-                st_tags(
-                    label='💡 Top Keywords:',
-                    text='Trending research topics:',
-                    value=keywords_list[:5],
-                    key="keywords"
-                )
-
-                st.subheader("☁️ Word Cloud")
-                wc_text = " ".join(keywords_list)
-                wordcloud = WordCloud(width=800, height=400, background_color='white').generate(wc_text)
-                fig, ax = plt.subplots()
-                ax.imshow(wordcloud, interpolation='bilinear')
-                ax.axis("off")
-                st.pyplot(fig)
-
-            with tab3:
-                st.subheader("📚 Papers Fetched")
-                papers = fetch_task.output if isinstance(fetch_task.output, list) else []
-                for i, paper in enumerate(papers):
-                    with st.expander(f"📄 {i + 1}. {paper['title']}"):
-                        st.markdown(f"**Authors:** {', '.join(paper['authors'])}")
-                        st.markdown(f"**Summary:** {paper['summary']}")
-
-            with tab4:
-                st.subheader("👩‍🔬 Author & Institution Report")
-                st.markdown(author_task.output)
+            
+            st.subheader("📚 Papers Fetched")
+            st.markdown(fetch_output)
+            
+            st.subheader("📈 Trending Topics")
+            keywords_list = [line.strip("- ") for line in trend_output.split("\n") if line.startswith("-")]
+            st.markdown("\n".join([f"✅ {kw}" for kw in keywords_list]))
+            
+            st.subheader("👩‍🔬 Top Authors & Institutions")
+            st.markdown(author_output)
