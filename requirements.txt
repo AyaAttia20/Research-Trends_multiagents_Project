@@ -22,8 +22,10 @@ chromadb==0.4.18
 # Streamlit for UI
 streamlit
 python-dotenv
+streamlit-tags
 
 # Visualization (for trend display, e.g., word clouds, charts)
 matplotlib
 wordcloud
 pandas
+
