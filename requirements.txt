@@ -1,11 +1,11 @@
-crewai
-langchain
-openai
+crewai==0.30.5
+langchain>=0.1.10,<0.2.0
+openai>=1.0.0
 unstructured
-chromadb
+chromadb==0.4.20
 arxiv
 streamlit
 python-dotenv
 tiktoken
 beautifulsoup4
-requests
+requests>=2.28,<2.32
