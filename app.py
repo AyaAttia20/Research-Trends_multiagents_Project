@@ -10,6 +10,12 @@ from crewai import Agent, Task, Crew
 from langchain.chat_models import ChatOpenAI
 from langchain.tools import Tool
 
+import pandas as pd
+import re
+import plotly.express as px
+
+
+
 warnings.filterwarnings("ignore")
 
 def fetch_arxiv(topic):
@@ -140,35 +146,45 @@ if run_button:
                 result = crew.kickoff(inputs=inputs)
 
                 # st.balloons()
-                st.success("✅ Crew run complete! Here's your research intelligence report:")
-                
-                # Final Report Summary
-                with st.container():
-                st.markdown("## 📄 Final Summary Report")
-                st.markdown(
-                    f"""<div style='padding: 1rem; background-color: #f0f2f6; border-radius: 10px;'>
-                        <p style='font-size: 1.1rem; color: #333;'>{result}</p>
-                    </div>""", unsafe_allow_html=True
-                )
-                
-                # Layout: 3 Columns for each major output
-                col1, col2, col3 = st.columns([1, 1, 1])
-                
-                # Papers Fetched
-                with col1:
-                st.markdown("### 📚 Papers Fetched")
-                with st.expander("🔎 View Paper Details", expanded=False):
-                    st.markdown(fetch_task.output)
-                
-                # Trend Analysis
-                with col2:
-                st.markdown("### 📈 Trend Analysis")
-                with st.expander("💡 See Trending Keywords and Topics", expanded=True):
-                    st.markdown(trend_task.output)
-                
-                # Author and Institution Report
-                with col3:
-                st.markdown("### 👩‍🔬 Top Authors & Institutions")
-                with st.expander("🏛️ View Contributors Report", expanded=True):
-                    st.markdown(author_task.output)
 
+                st.success("✅ Analysis Complete!")
+                
+                # ========== 1. Papers Fetched ==========
+                st.markdown("## 📚 Research Papers on Topic")
+                papers = re.split(r"\n\s*\n", fetch_task.output.strip())  # split by double newlines
+                for i, paper in enumerate(papers):
+                    with st.expander(f"📄 Paper {i+1}"):
+                        st.markdown(paper)
+                
+                # ========== 2. Trending Keywords Chart ==========
+                st.markdown("## 📈 Trending Keywords in These Papers")
+                # Example input format expected from trend_task.output:
+                # "- Federated Learning: A privacy-preserving method...\n- Self-supervised learning: ..."
+                
+                # Parse keywords from bullet points
+                trend_lines = trend_task.output.strip().split("\n")
+                keyword_data = []
+                for line in trend_lines:
+                    match = re.match(r"[-•]\s*(.+?):", line)
+                    if match:
+                        keyword = match.group(1)
+                        keyword_data.append(keyword)
+                
+                if keyword_data:
+                    df_keywords = pd.DataFrame({'Keyword': keyword_data})
+                    keyword_counts = df_keywords['Keyword'].value_counts().reset_index()
+                    keyword_counts.columns = ['Keyword', 'Count']
+                    fig = px.bar(keyword_counts, x='Keyword', y='Count', title="Top Trending Keywords", text='Count')
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("⚠️ No keywords found to visualize.")
+                
+                # ========== 3. Top Authors & Institutions ==========
+                st.markdown("## 👩‍🔬 Top Authors and Institutions")
+                # Example expected format:
+                # - Author Name – Institution (3 papers)
+                
+                author_lines = author_task.output.strip().split("\n")
+                for line in author_lines:
+                    if "–" in line:
+                        st.markdown(f"👤 **{line.strip()}**")
