@@ -139,19 +139,36 @@ if run_button:
                 inputs = {"topic": topic}
                 result = crew.kickoff(inputs=inputs)
 
-                st.success("✅ Crew run complete!")
+                # st.balloons()
+                st.success("✅ Crew run complete! Here's your research intelligence report:")
+                
+                # Final Report Summary
+                with st.container():
+                st.markdown("## 📄 Final Summary Report")
+                st.markdown(
+                    f"""<div style='padding: 1rem; background-color: #f0f2f6; border-radius: 10px;'>
+                        <p style='font-size: 1.1rem; color: #333;'>{result}</p>
+                    </div>""", unsafe_allow_html=True
+                )
+                
+                # Layout: 3 Columns for each major output
+                col1, col2, col3 = st.columns([1, 1, 1])
+                
+                # Papers Fetched
+                with col1:
+                st.markdown("### 📚 Papers Fetched")
+                with st.expander("🔎 View Paper Details", expanded=False):
+                    st.markdown(fetch_task.output)
+                
+                # Trend Analysis
+                with col2:
+                st.markdown("### 📈 Trend Analysis")
+                with st.expander("💡 See Trending Keywords and Topics", expanded=True):
+                    st.markdown(trend_task.output)
+                
+                # Author and Institution Report
+                with col3:
+                st.markdown("### 👩‍🔬 Top Authors & Institutions")
+                with st.expander("🏛️ View Contributors Report", expanded=True):
+                    st.markdown(author_task.output)
 
-                st.subheader("📄 Final Report")
-                st.markdown(result)
-
-                st.subheader("📚 Papers Fetched")
-                st.markdown(fetch_task.output)
-
-                st.subheader("📈 Trend Analysis")
-                st.markdown(trend_task.output)
-
-                st.subheader("👩‍🔬 Author & Institution Report")
-                st.markdown(author_task.output)
-
-            except Exception as e:
-                st.error(f"❌ Error during execution: {str(e)}")
