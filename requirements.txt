@@ -28,4 +28,5 @@ streamlit-tags
 matplotlib
 wordcloud
 pandas
+plotly
 
