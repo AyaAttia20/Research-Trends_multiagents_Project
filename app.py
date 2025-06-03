@@ -4,40 +4,43 @@ sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
 
 import streamlit as st
 import requests
-import feedparser
 import warnings
+import pandas as pd
+import re
+import plotly.express as px
+import feedparser
 from crewai import Agent, Task, Crew
 from langchain.chat_models import ChatOpenAI
 from langchain.tools import Tool
 
-import pandas as pd
-import re
-import plotly.express as px
-
 warnings.filterwarnings("ignore")
 
-def fetch_arxiv(topic):
-    url = f"http://export.arxiv.org/api/query?search_query=all:{topic}&start=0&max_results=10"
+# -------------------------
+# Semantic Scholar Fetcher
+# -------------------------
+def fetch_semantic_scholar(topic, limit=10):
+    url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={topic}&limit={limit}&fields=title,abstract,authors,url,year"
     response = requests.get(url)
-    feed = feedparser.parse(response.text)
-    results = []
-    for entry in feed.entries:
-        results.append({
-            "title": entry.title,
-            "summary": entry.summary,
-            "authors": [author.name for author in entry.authors],
-            "url": entry.link
+    data = response.json()
+    papers = []
+
+    for item in data.get("data", []):
+        papers.append({
+            "title": item.get("title", "No title"),
+            "summary": item.get("abstract", "No abstract"),
+            "authors": [author.get("name") for author in item.get("authors", [])],
+            "url": item.get("url", "#"),
+            "year": item.get("year", "Unknown")
         })
-    return results
+    return papers
 
-def arxiv_fetch_wrapper(input):
-    if isinstance(input, dict):
-        topic = input.get("topic") or input.get("subject_area") or next(iter(input.values()))
-    else:
-        topic = input
-    return fetch_arxiv(topic)
+def semantic_scholar_wrapper(input):
+    topic = input["topic"] if isinstance(input, dict) else input
+    return fetch_semantic_scholar(topic)
 
-
+# -------------------------
+# Streamlit UI
+# -------------------------
 st.set_page_config(page_title="Research Trends Tracker", layout="wide")
 st.title("🔬 Research Trends Tracker")
 
@@ -64,18 +67,20 @@ if run_button:
                 st.error(f"❌ Failed to initialize LLM: {str(e)}")
                 st.stop()
 
-            arxiv_tool = Tool(
-                name="ArxivResearchFetcher",
-                func=arxiv_fetch_wrapper,
-                description="Fetches recent research papers from arXiv given a topic string or dict",
+            # Tool
+            fetch_tool = Tool(
+                name="SemanticScholarFetcher",
+                func=semantic_scholar_wrapper,
+                description="Fetches recent research papers from Semantic Scholar given a topic string",
                 return_direct=True
             )
 
+            # Agents
             fetcher = Agent(
                 role="Research Fetcher",
                 goal="Find the latest research papers on a given topic",
-                tools=[arxiv_tool],
-                backstory="Expert at gathering academic papers using arXiv.",
+                tools=[fetch_tool],
+                backstory="Expert at gathering academic papers from Semantic Scholar.",
                 verbose=True,
                 llm=llm
             )
@@ -96,18 +101,19 @@ if run_button:
                 llm=llm
             )
 
+            # Tasks
             fetch_task = Task(
-                description=f"Fetch recent research papers from arXiv for the topic '{topic}'.",
-                expected_output="A list of paper titles, summaries, authors and URLs.",
+                description=f"Fetch recent research papers from Semantic Scholar for the topic '{topic}'.",
+                expected_output="A list of paper titles, abstracts, authors, and links.",
                 agent=fetcher
             )
 
             trend_task = Task(
                 description=(
                     f"Analyze the list of research papers (title, summary, authors) on the topic '{topic}' "
-                    "and identify the top 10 trending keywords or research themes in bullet points."
+                    "and identify the top 5-10 trending keywords or research themes in bullet points."
                 ),
-                expected_output="A list of 10 trending research topics or keywords with descriptions.",
+                expected_output="A list of 5–10 trending research topics or keywords with descriptions.",
                 agent=analyzer,
                 context=[fetch_task]
             )
@@ -118,13 +124,14 @@ if run_button:
                     "identify the most frequently mentioned authors. Include affiliations if available."
                 ),
                 expected_output=(
-                    "- A list of top 10 authors, their affiliations, and publication counts.\n"
+                    "- A list of top 3–5 authors, their affiliations if possible, and publication counts.\n"
                     "- Format: Author Name – Institution (N papers)"
                 ),
                 agent=reporter,
                 context=[fetch_task]
             )
 
+            # Crew Setup
             crew = Crew(
                 agents=[fetcher, analyzer, reporter],
                 tasks=[fetch_task, trend_task, author_task],
@@ -137,65 +144,40 @@ if run_button:
 
                 st.success("✅ Analysis Complete!")
 
-                # ========== 1. Papers Fetched ==========
-                st.markdown("## 📚 Research Papers on Topic")
+                # 1. Display fetched papers
+                st.markdown("## 📚 Research Papers")
+                try:
+                    papers_raw = eval(fetch_task.output.value if hasattr(fetch_task.output, "value") else fetch_task.output)
+                    for paper in papers_raw[:10]:
+                        st.markdown(f"📄 **[{paper['title']}]({paper['url']})**  \n📝 {paper['summary'][:300]}...  \n👨‍🔬 _Authors_: {', '.join(paper['authors'])}  \n📅 _Year_: {paper['year']}")
+                        st.markdown("---")
+                except Exception as e:
+                    st.warning(f"Could not parse papers: {e}")
 
-                # Get papers freshly to have URLs reliably
-                papers = fetch_arxiv(topic)[:10]
-
-                for i, paper in enumerate(papers):
-                    title = paper["title"].replace("\n", " ").strip()
-                    summary = paper["summary"].replace("\n", " ").strip()
-                    url = paper["url"]
-                    authors = ", ".join(paper["authors"])
-
-                    with st.expander(f"📄 Paper {i+1}: {title}"):
-                        st.markdown(f"**Title:** [{title}]({url})")
-                        st.markdown(f"**Authors:** {authors}")
-                        st.markdown(f"**Summary:** {summary}")
-
-                # ========== 2. Trending Keywords Chart ==========
-                st.markdown("## 📈 Trending Keywords in These Papers")
-
-                # Convert output to string and parse keywords
-                trend_text = str(trend_task.output)
-                # Extract bullet points of form "- Keyword: description"
-                trend_lines = [line.strip() for line in trend_text.split("\n") if line.strip()]
+                # 2. Keyword Trends Chart
+                st.markdown("## 📈 Trending Keywords")
+                trend_lines = trend_task.output.value.split("\n") if hasattr(trend_task.output, "value") else trend_task.output.split("\n")
                 keyword_data = []
                 for line in trend_lines:
-                    match = re.match(r"[-•]\s*(.+?):", line)
+                    match = re.match(r"[-•]?\s*(.+?):", line.strip())
                     if match:
-                        keyword = match.group(1)
-                        keyword_data.append(keyword)
-                    else:
-                        # fallback: if line is just "- keyword" without colon
-                        if line.startswith("-"):
-                            keyword_data.append(line[1:].strip())
-
-                keyword_data = keyword_data[:10]
+                        keyword_data.append(match.group(1).strip())
 
                 if keyword_data:
-                    df_keywords = pd.DataFrame({'Keyword': keyword_data})
-                    keyword_counts = df_keywords['Keyword'].value_counts().reset_index()
-                    keyword_counts.columns = ['Keyword', 'Count']
-                    fig = px.bar(keyword_counts, x='Keyword', y='Count', title="Top Trending Keywords", text='Count')
+                    df_keywords = pd.DataFrame({'Keyword': keyword_data[:10]})
+                    fig = px.bar(df_keywords['Keyword'].value_counts().reset_index(), x='index', y='Keyword',
+                                 labels={'index': 'Keyword', 'Keyword': 'Count'},
+                                 title="Top Trending Keywords", text_auto=True)
                     st.plotly_chart(fig, use_container_width=True)
                 else:
                     st.info("⚠️ No keywords found to visualize.")
 
-                # ========== 3. Top Authors & Institutions ==========
+                # 3. Authors
                 st.markdown("## 👩‍🔬 Top Authors and Institutions")
-
-                author_text = str(author_task.output)
-                author_lines = [line.strip() for line in author_text.split("\n") if line.strip()]
-                # Only keep lines containing "–" (dash) indicating "Author – Institution"
-                author_lines = [line for line in author_lines if "–" in line][:10]
-
-                if author_lines:
-                    for line in author_lines:
-                        st.markdown(f"👤 **{line}**")
-                else:
-                    st.info("⚠️ No author information found to display.")
+                author_lines = author_task.output.value.split("\n") if hasattr(author_task.output, "value") else author_task.output.split("\n")
+                for line in author_lines:
+                    if "–" in line:
+                        st.markdown(f"👤 **{line.strip()}**")
 
             except Exception as e:
                 st.error(f"❌ Error during execution: {str(e)}")
