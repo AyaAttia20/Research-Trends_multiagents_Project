@@ -25,7 +25,8 @@ def fetch_arxiv(topic):
         results.append({
             "title": entry.title,
             "summary": entry.summary,
-            "authors": [author.name for author in entry.authors]
+            "authors": [author.name for author in entry.authors],
+            "url": entry.link
         })
     return results
 
@@ -44,9 +45,6 @@ api_key = st.text_input("🔑 Enter your OpenRouter API Key", type="password")
 topic = st.text_input("📚 Enter a research topic", "Artificial Intelligence")
 run_button = st.button("🚀 Run Analysis")
 
-# ===============================
-# Main Execution
-# ===============================
 if run_button:
     if not api_key:
         st.error("❌ Please enter your OpenRouter API Key before running.")
@@ -98,19 +96,18 @@ if run_button:
                 llm=llm
             )
 
-            # Tasks
             fetch_task = Task(
                 description=f"Fetch recent research papers from arXiv for the topic '{topic}'.",
-                expected_output="A list of paper titles and abstracts.",
+                expected_output="A list of paper titles, summaries, authors and URLs.",
                 agent=fetcher
             )
 
             trend_task = Task(
                 description=(
                     f"Analyze the list of research papers (title, summary, authors) on the topic '{topic}' "
-                    "and identify the top 5 trending keywords or research themes in bullet points."
+                    "and identify the top 10 trending keywords or research themes in bullet points."
                 ),
-                expected_output="A list of 5 trending research topics or keywords with descriptions.",
+                expected_output="A list of 10 trending research topics or keywords with descriptions.",
                 agent=analyzer,
                 context=[fetch_task]
             )
@@ -121,21 +118,19 @@ if run_button:
                     "identify the most frequently mentioned authors. Include affiliations if available."
                 ),
                 expected_output=(
-                    "- A list of top 3–5 authors, their affiliations, and publication counts.\n"
+                    "- A list of top 10 authors, their affiliations, and publication counts.\n"
                     "- Format: Author Name – Institution (N papers)"
                 ),
                 agent=reporter,
                 context=[fetch_task]
             )
 
-            # Crew Setup
             crew = Crew(
                 agents=[fetcher, analyzer, reporter],
                 tasks=[fetch_task, trend_task, author_task],
                 verbose=True
             )
 
-            # Run Crew
             try:
                 inputs = {"topic": topic}
                 result = crew.kickoff(inputs=inputs)
@@ -144,23 +139,40 @@ if run_button:
 
                 # ========== 1. Papers Fetched ==========
                 st.markdown("## 📚 Research Papers on Topic")
-                papers_text = str(fetch_task.output)
-                papers = re.split(r"\n\s*\n", papers_text.strip())
-                for i, paper in enumerate(papers[:10]):  # limit to 10 papers
-                    with st.expander(f"📄 Paper {i+1}"):
-                        st.markdown(paper)
+
+                # Get papers freshly to have URLs reliably
+                papers = fetch_arxiv(topic)[:10]
+
+                for i, paper in enumerate(papers):
+                    title = paper["title"].replace("\n", " ").strip()
+                    summary = paper["summary"].replace("\n", " ").strip()
+                    url = paper["url"]
+                    authors = ", ".join(paper["authors"])
+
+                    with st.expander(f"📄 Paper {i+1}: {title}"):
+                        st.markdown(f"**Title:** [{title}]({url})")
+                        st.markdown(f"**Authors:** {authors}")
+                        st.markdown(f"**Summary:** {summary}")
 
                 # ========== 2. Trending Keywords Chart ==========
                 st.markdown("## 📈 Trending Keywords in These Papers")
+
+                # Convert output to string and parse keywords
                 trend_text = str(trend_task.output)
-                trend_lines = trend_text.strip().split("\n")
+                # Extract bullet points of form "- Keyword: description"
+                trend_lines = [line.strip() for line in trend_text.split("\n") if line.strip()]
                 keyword_data = []
                 for line in trend_lines:
                     match = re.match(r"[-•]\s*(.+?):", line)
                     if match:
                         keyword = match.group(1)
                         keyword_data.append(keyword)
-                keyword_data = keyword_data[:10]  # limit to 10 keywords
+                    else:
+                        # fallback: if line is just "- keyword" without colon
+                        if line.startswith("-"):
+                            keyword_data.append(line[1:].strip())
+
+                keyword_data = keyword_data[:10]
 
                 if keyword_data:
                     df_keywords = pd.DataFrame({'Keyword': keyword_data})
@@ -173,11 +185,17 @@ if run_button:
 
                 # ========== 3. Top Authors & Institutions ==========
                 st.markdown("## 👩‍🔬 Top Authors and Institutions")
+
                 author_text = str(author_task.output)
-                author_lines = author_text.strip().split("\n")
-                author_lines = [line for line in author_lines if "–" in line][:10]  # limit to 10 authors
-                for line in author_lines:
-                    st.markdown(f"👤 **{line.strip()}**")
+                author_lines = [line.strip() for line in author_text.split("\n") if line.strip()]
+                # Only keep lines containing "–" (dash) indicating "Author – Institution"
+                author_lines = [line for line in author_lines if "–" in line][:10]
+
+                if author_lines:
+                    for line in author_lines:
+                        st.markdown(f"👤 **{line}**")
+                else:
+                    st.info("⚠️ No author information found to display.")
 
             except Exception as e:
                 st.error(f"❌ Error during execution: {str(e)}")
