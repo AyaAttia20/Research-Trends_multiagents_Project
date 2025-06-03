@@ -3,17 +3,23 @@ import pysqlite3
 sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
 
 import streamlit as st
+import os
 import requests
 import feedparser
-import warnings
+import pandas as pd
+import matplotlib.pyplot as plt
+from wordcloud import WordCloud
+from streamlit_tags import st_tags
 from crewai import Agent, Task, Crew
 from langchain.chat_models import ChatOpenAI
 from langchain.tools import Tool
+import warnings
 
-warnings.filterwarnings("ignore")
+warnings.filterwarnings('ignore')
+
 
 def fetch_arxiv(topic):
-    url = f"http://export.arxiv.org/api/query?search_query=all:{topic}&start=0&max_results=10"
+    url = f'http://export.arxiv.org/api/query?search_query=all:{topic}&start=0&max_results=10'
     response = requests.get(url)
     feed = feedparser.parse(response.text)
     results = []
@@ -32,7 +38,7 @@ def arxiv_fetch_wrapper(input):
         topic = input
     return fetch_arxiv(topic)
 
-
+# ----------------------- Streamlit UI -----------------------
 st.set_page_config(page_title="Research Trends Tracker", layout="wide")
 st.title("🔬 Research Trends Tracker")
 
@@ -40,38 +46,26 @@ api_key = st.text_input("🔑 Enter your OpenRouter API Key", type="password")
 topic = st.text_input("📚 Enter a research topic", "Artificial Intelligence")
 run_button = st.button("🚀 Run Analysis")
 
-# ===============================
-# Main Execution
-# ===============================
 if run_button:
     if not api_key:
-        st.error("❌ Please enter your OpenRouter API Key before running.")
-    elif not api_key.startswith("sk-") and len(api_key) < 20:
-        st.error("⚠️ Invalid API key format. Please double-check your OpenRouter API key.")
+        st.error("Please enter your OpenRouter API Key before running.")
     else:
         with st.spinner("Running multi-agent crew..."):
 
-         
-            try:
-                llm = ChatOpenAI(
-                    model_name="mistralai/mistral-7b-instruct",
-                    base_url="https://openrouter.ai/api/v1", 
-                    api_key=api_key,
-                    temperature=0.7
-                )
-            except Exception as e:
-                st.error(f"❌ Failed to initialize LLM: {str(e)}")
-                st.stop()
+            llm = ChatOpenAI(
+                model_name="mistralai/mistral-7b-instruct",
+                openai_api_base="https://openrouter.ai/api/v1",
+                openai_api_key=api_key,
+                temperature=0.7
+            )
 
-           
             arxiv_tool = Tool(
                 name="ArxivResearchFetcher",
                 func=arxiv_fetch_wrapper,
-                description="Fetches recent research papers from arXiv given a topic string or dict",
+                description="Fetches recent research papers from arXiv given a topic string or a dict with 'topic'",
                 return_direct=True
             )
 
-         
             fetcher = Agent(
                 role="Research Fetcher",
                 goal="Find the latest research papers on a given topic",
@@ -84,39 +78,40 @@ if run_button:
             analyzer = Agent(
                 role="Trend Analyzer",
                 goal="Analyze recent papers and extract trending keywords and hot topics",
-                backstory="Skilled in text mining and NLP to extract useful trends.",
                 verbose=True,
+                backstory="Skilled in text mining and NLP to extract useful trends.",
                 llm=llm
             )
 
             reporter = Agent(
                 role="Author & Institution Reporter",
                 goal="Find top authors and institutions publishing in the research field",
-                backstory="Specializes in identifying the key contributors in academic fields.",
                 verbose=True,
+                backstory="Specializes in identifying the key contributors in academic fields.",
                 llm=llm
             )
 
-            # Tasks
             fetch_task = Task(
-                description=f"Fetch recent research papers from arXiv for the topic '{topic}'.",
+                description="Fetch recent research papers from arXiv for the topic {topic}.",
                 expected_output="A list of paper titles and abstracts.",
-                agent=fetcher
+                agent=fetcher,
+                async_execution=False
             )
 
             trend_task = Task(
                 description=(
-                    f"Analyze the list of research papers (title, summary, authors) on the topic '{topic}' "
+                    "Analyze the following list of research papers (title, summary, authors) on the topic '{topic}' "
                     "and identify the top 5 trending keywords or research themes in bullet points."
                 ),
                 expected_output="A list of 5 trending research topics or keywords with descriptions.",
                 agent=analyzer,
-                context=[fetch_task]
+                context=[fetch_task],
+                async_execution=False
             )
 
             author_task = Task(
                 description=(
-                    f"Based on the list of paper titles, authors, and summaries for the topic '{topic}', "
+                    "Based on the list of paper titles, authors, and summaries for the topic {topic}, "
                     "identify the most frequently mentioned authors. Include affiliations if available."
                 ),
                 expected_output=(
@@ -124,34 +119,53 @@ if run_button:
                     "- Format: Author Name – Institution (N papers)"
                 ),
                 agent=reporter,
-                context=[fetch_task]
+                context=[fetch_task],
+                async_execution=False
             )
 
-            # Crew Setup
             crew = Crew(
                 agents=[fetcher, analyzer, reporter],
                 tasks=[fetch_task, trend_task, author_task],
                 verbose=True
             )
 
-            # Run Crew
-            try:
-                inputs = {"topic": topic}
-                result = crew.kickoff(inputs=inputs)
+            inputs = {"topic": topic}
+            result = crew.kickoff(inputs=inputs)
 
-                st.success("✅ Crew run complete!")
+            # Visual Outputs
+            st.success("✅ Crew run complete!")
 
-                st.subheader("📄 Final Report")
+            tab1, tab2, tab3, tab4 = st.tabs(["📄 Summary", "📈 Trends", "📚 Papers", "👥 Authors"])
+
+            with tab1:
                 st.markdown(result)
 
+            with tab2:
+                st.subheader("📌 Trending Keywords")
+                keywords_list = [line.strip("- ") for line in trend_task.output.split("\n") if line.startswith("-")]
+                st_tags(
+                    label='💡 Top Keywords:',
+                    text='Trending research topics:',
+                    value=keywords_list[:5],
+                    key="keywords"
+                )
+
+                st.subheader("☁️ Word Cloud")
+                wc_text = " ".join(keywords_list)
+                wordcloud = WordCloud(width=800, height=400, background_color='white').generate(wc_text)
+                fig, ax = plt.subplots()
+                ax.imshow(wordcloud, interpolation='bilinear')
+                ax.axis("off")
+                st.pyplot(fig)
+
+            with tab3:
                 st.subheader("📚 Papers Fetched")
-                st.markdown(fetch_task.output)
+                papers = fetch_task.output if isinstance(fetch_task.output, list) else []
+                for i, paper in enumerate(papers):
+                    with st.expander(f"📄 {i + 1}. {paper['title']}"):
+                        st.markdown(f"**Authors:** {', '.join(paper['authors'])}")
+                        st.markdown(f"**Summary:** {paper['summary']}")
 
-                st.subheader("📈 Trend Analysis")
-                st.markdown(trend_task.output)
-
+            with tab4:
                 st.subheader("👩‍🔬 Author & Institution Report")
                 st.markdown(author_task.output)
-
-            except Exception as e:
-                st.error(f"❌ Error during execution: {str(e)}")
