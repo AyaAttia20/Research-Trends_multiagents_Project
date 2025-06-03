@@ -14,16 +14,15 @@ import pandas as pd
 import re
 import plotly.express as px
 
-
-
 warnings.filterwarnings("ignore")
 
+# Fetch papers from arXiv
 def fetch_arxiv(topic):
     url = f"http://export.arxiv.org/api/query?search_query=all:{topic}&start=0&max_results=10"
     response = requests.get(url)
     feed = feedparser.parse(response.text)
     results = []
-    for entry in feed.entries:
+    for entry in feed.entries[:10]:  # Limit to 10 papers
         results.append({
             "title": entry.title,
             "summary": entry.summary,
@@ -38,7 +37,7 @@ def arxiv_fetch_wrapper(input):
         topic = input
     return fetch_arxiv(topic)
 
-
+# Streamlit App UI
 st.set_page_config(page_title="Research Trends Tracker", layout="wide")
 st.title("🔬 Research Trends Tracker")
 
@@ -46,9 +45,7 @@ api_key = st.text_input("🔑 Enter your OpenRouter API Key", type="password")
 topic = st.text_input("📚 Enter a research topic", "Artificial Intelligence")
 run_button = st.button("🚀 Run Analysis")
 
-# ===============================
-# Main Execution
-# ===============================
+# Execution
 if run_button:
     if not api_key:
         st.error("❌ Please enter your OpenRouter API Key before running.")
@@ -56,8 +53,6 @@ if run_button:
         st.error("⚠️ Invalid API key format. Please double-check your OpenRouter API key.")
     else:
         with st.spinner("Running multi-agent crew..."):
-
-         
             try:
                 llm = ChatOpenAI(
                     model_name="mistralai/mistral-7b-instruct",
@@ -69,7 +64,6 @@ if run_button:
                 st.error(f"❌ Failed to initialize LLM: {str(e)}")
                 st.stop()
 
-           
             arxiv_tool = Tool(
                 name="ArxivResearchFetcher",
                 func=arxiv_fetch_wrapper,
@@ -77,7 +71,6 @@ if run_button:
                 return_direct=True
             )
 
-         
             fetcher = Agent(
                 role="Research Fetcher",
                 goal="Find the latest research papers on a given topic",
@@ -103,7 +96,6 @@ if run_button:
                 llm=llm
             )
 
-            # Tasks
             fetch_task = Task(
                 description=f"Fetch recent research papers from arXiv for the topic '{topic}'.",
                 expected_output="A list of paper titles and abstracts.",
@@ -113,9 +105,9 @@ if run_button:
             trend_task = Task(
                 description=(
                     f"Analyze the list of research papers (title, summary, authors) on the topic '{topic}' "
-                    "and identify the top 5 trending keywords or research themes in bullet points."
+                    "and identify the top 10 trending keywords or research themes in bullet points."
                 ),
-                expected_output="A list of 5 trending research topics or keywords with descriptions.",
+                expected_output="A list of 10 trending research topics or keywords with descriptions.",
                 agent=analyzer,
                 context=[fetch_task]
             )
@@ -123,68 +115,78 @@ if run_button:
             author_task = Task(
                 description=(
                     f"Based on the list of paper titles, authors, and summaries for the topic '{topic}', "
-                    "identify the most frequently mentioned authors. Include affiliations if available."
+                    "identify the most frequently mentioned authors. Include affiliations if available. "
+                    "Limit the result to 10 authors."
                 ),
                 expected_output=(
-                    "- A list of top 3–5 authors, their affiliations, and publication counts.\n"
+                    "- A list of top 10 authors, their affiliations, and publication counts.\n"
                     "- Format: Author Name – Institution (N papers)"
                 ),
                 agent=reporter,
                 context=[fetch_task]
             )
 
-            # Crew Setup
             crew = Crew(
                 agents=[fetcher, analyzer, reporter],
                 tasks=[fetch_task, trend_task, author_task],
                 verbose=True
             )
 
-            # Run Crew
             try:
                 inputs = {"topic": topic}
                 result = crew.kickoff(inputs=inputs)
 
-                # st.balloons()
-
                 st.success("✅ Analysis Complete!")
-                
-                # ========== 1. Papers Fetched ==========
-                st.markdown("## 📚 Research Papers on Topic")
-                papers = re.split(r"\n\s*\n", fetch_task.output.strip())  # split by double newlines
-                for i, paper in enumerate(papers):
-                    with st.expander(f"📄 Paper {i+1}"):
-                        st.markdown(paper)
-                
-                # ========== 2. Trending Keywords Chart ==========
-                st.markdown("## 📈 Trending Keywords in These Papers")
-                # Example input format expected from trend_task.output:
-                # "- Federated Learning: A privacy-preserving method...\n- Self-supervised learning: ..."
-                
-                # Parse keywords from bullet points
+
+                # Papers
+                st.markdown("## 📚 Top 10 Research Papers")
+                if isinstance(fetch_task.output, list):
+                    for i, paper in enumerate(fetch_task.output[:10]):
+                        with st.expander(f"📄 Paper {i+1}: {paper['title']}"):
+                            st.markdown(f"**Authors**: {', '.join(paper['authors'])}")
+                            st.markdown(paper['summary'])
+                else:
+                    papers = re.split(r"\n\s*\n", fetch_task.output.strip())
+                    for i, paper in enumerate(papers[:10]):
+                        with st.expander(f"📄 Paper {i+1}"):
+                            st.markdown(paper)
+
+                # Keywords
+                st.markdown("## 📈 Top 10 Trending Keywords")
                 trend_lines = trend_task.output.strip().split("\n")
                 keyword_data = []
                 for line in trend_lines:
                     match = re.match(r"[-•]\s*(.+?):", line)
                     if match:
-                        keyword = match.group(1)
+                        keyword = match.group(1).strip()
                         keyword_data.append(keyword)
-                
+
+                keyword_data = keyword_data[:10]  # Limit to 10
                 if keyword_data:
                     df_keywords = pd.DataFrame({'Keyword': keyword_data})
                     keyword_counts = df_keywords['Keyword'].value_counts().reset_index()
                     keyword_counts.columns = ['Keyword', 'Count']
-                    fig = px.bar(keyword_counts, x='Keyword', y='Count', title="Top Trending Keywords", text='Count')
+                    fig = px.bar(
+                        keyword_counts,
+                        x='Keyword', y='Count',
+                        title="🔍 Top 10 Trending Keywords",
+                        text='Count',
+                        color='Keyword',
+                    )
+                    fig.update_traces(textposition='outside')
                     st.plotly_chart(fig, use_container_width=True)
                 else:
-                    st.info("⚠️ No keywords found to visualize.")
-                
-                # ========== 3. Top Authors & Institutions ==========
-                st.markdown("## 👩‍🔬 Top Authors and Institutions")
-                # Example expected format:
-                # - Author Name – Institution (3 papers)
-                
-                author_lines = author_task.output.strip().split("\n")
-                for line in author_lines:
-                    if "–" in line:
+                    st.info("⚠️ No keywords extracted to visualize.")
+
+                # Authors
+                st.markdown("## 👩‍🔬 Top 10 Authors and Institutions")
+                author_lines = [line for line in author_task.output.strip().split("\n") if "–" in line or "-" in line]
+                author_lines = author_lines[:10]  # Limit to 10
+                if author_lines:
+                    for line in author_lines:
                         st.markdown(f"👤 **{line.strip()}**")
+                else:
+                    st.info("⚠️ No author info could be parsed from the results.")
+
+            except Exception as e:
+                st.error(f"❌ Error during execution: {str(e)}")
