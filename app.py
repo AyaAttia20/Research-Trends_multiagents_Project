@@ -16,13 +16,12 @@ from crewai import Agent, Task, Crew
 from langchain.chat_models import ChatOpenAI
 from langchain.tools import Tool
 
-# Ignore warnings
 warnings.filterwarnings("ignore")
 
 # ----------------------------
-# OpenAlex API Wrapper (No API key needed)
+# OpenAlex API Wrapper
 # ----------------------------
-def fetch_openalex_papers(topic):
+def fetch_openalex(topic):
     url = "https://api.openalex.org/works"
     params = {
         "search": topic,
@@ -32,41 +31,38 @@ def fetch_openalex_papers(topic):
     }
 
     response = requests.get(url, params=params)
-    if response.status_code != 200:
+    try:
+        data = response.json()
+    except:
         return []
 
-    data = response.json()
     results = []
-    for paper in data.get("results", []):
-        title = paper.get("title", "Untitled")
-        abstract = paper.get("abstract_inverted_index")
-        abstract_text = " ".join(abstract.keys()) if abstract else "⚠️ Abstract not available. See full paper for details."
-        authorships = paper.get("authorships", [])
-        authors = [auth["author"]["display_name"] for auth in authorships]
-        paper_url = paper.get("id")
-
+    for work in data.get("results", []):
+        title = work.get("title", "Untitled")
+        abstract = work.get("abstract", "⚠️ Abstract not available.")
+        authors = [a["author"]["display_name"] for a in work.get("authorships", [])]
+        paper_url = work.get("id", "")
         results.append({
             "title": title,
-            "summary": abstract_text,
+            "summary": abstract,
             "authors": authors,
             "url": paper_url
         })
 
     return results
 
-
 def fetch_wrapper(input):
     if isinstance(input, dict):
         topic = input.get("topic") or next(iter(input.values()))
     else:
         topic = input
-    return fetch_openalex_papers(topic)
+    return fetch_openalex(topic)
 
 # ----------------------------
 # Streamlit UI
 # ----------------------------
 st.set_page_config(page_title="Research Trends Tracker", layout="wide")
-st.title("🔬 Research Trends Tracker")
+st.title("🔬 Research Trends Tracker (OpenAlex Edition)")
 
 api_key = st.text_input("🔑 Enter your OpenRouter API Key", type="password")
 topic = st.text_input("📚 Enter a research topic", "Artificial Intelligence")
@@ -91,9 +87,6 @@ if run_button:
                 st.error(f"❌ Failed to initialize LLM: {str(e)}")
                 st.stop()
 
-            # ---------------
-            # Agents & Tools
-            # ---------------
             tool = Tool(
                 name="OpenAlexFetcher",
                 func=fetch_wrapper,
@@ -126,9 +119,6 @@ if run_button:
                 llm=llm
             )
 
-            # ---------------
-            # Tasks
-            # ---------------
             fetch_task = Task(
                 description=f"Fetch latest 10 research papers on '{topic}'.",
                 expected_output="List of papers with title, abstract, authors, and URL.",
@@ -155,22 +145,17 @@ if run_button:
                 verbose=True
             )
 
-            # ---------------
-            # Execute Crew
-            # ---------------
             try:
                 inputs = {"topic": topic}
                 result = crew.kickoff(inputs=inputs)
                 st.success("✅ Analysis Complete!")
 
-                # ---------------------
-                # Display: Latest Papers
-                # ---------------------
+                # Display Papers
                 st.markdown("## 📚 Latest Papers")
                 raw_output = str(fetch_task.output)
                 try:
                     papers = eval(raw_output) if raw_output.startswith("[{") else []
-                except Exception:
+                except:
                     papers = []
 
                 if papers:
@@ -182,9 +167,7 @@ if run_button:
                 else:
                     st.warning("⚠️ Could not parse papers.")
 
-                # ------------------------
-                # Display: Trending Keywords
-                # ------------------------
+                # Display Trending Keywords
                 st.markdown("## 📈 Trending Keywords")
                 trend_text = str(trend_task.output)
                 trend_lines = trend_text.strip().split("\n")
@@ -192,8 +175,7 @@ if run_button:
                 for line in trend_lines:
                     match = re.match(r"[-•]\s*(.+?):", line)
                     if match:
-                        keyword = match.group(1)
-                        keywords.append(keyword)
+                        keywords.append(match.group(1))
 
                 if keywords:
                     df_keywords = pd.DataFrame({'Keyword': keywords[:10]})
@@ -202,9 +184,7 @@ if run_button:
                 else:
                     st.info("⚠️ No keywords found to visualize.")
 
-                # ----------------------------
-                # Display: Top Authors
-                # ----------------------------
+                # Display Authors
                 st.markdown("## 👩‍🔬 Top Authors and Institutions")
                 author_lines = str(author_task.output).split("\n")
                 shown = 0
