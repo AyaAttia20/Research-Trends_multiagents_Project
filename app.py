@@ -10,7 +10,6 @@ import warnings
 import pandas as pd
 import plotly.express as px
 import re
-import ast
 
 # CrewAI & LangChain
 from crewai import Agent, Task, Crew
@@ -26,7 +25,7 @@ def fetch_openalex(topic):
     url = "https://api.openalex.org/works"
     params = {
         "search": topic,
-        "filter": "publication_year:2025",
+        "filter": "publication_year:2024",
         "sort": "cited_by_count:desc",
         "per-page": 10
     }
@@ -79,11 +78,12 @@ if run_button:
 
             try:
                 llm = ChatOpenAI(
-                            model_name="openai/gpt-3.5-turbo",
-                            base_url="https://openrouter.ai/api/v1",
-                            api_key=api_key,
-                            temperature=0.7
-                        )
+                    model_name="openchat/openchat-7b",  # ✅ Free & fast
+                    base_url="https://openrouter.ai/api/v1",
+                    api_key=api_key,
+                    temperature=0.7,
+                    max_tokens=1024
+                )
             except Exception as e:
                 st.error(f"❌ Failed to initialize LLM: {str(e)}")
                 st.stop()
@@ -151,17 +151,11 @@ if run_button:
                 result = crew.kickoff(inputs=inputs)
                 st.success("✅ Analysis Complete!")
 
-                # Optional debug: show raw outputs
-                st.subheader("🪵 Raw Agent Outputs (Debug)")
-                st.code(str(fetch_task.output), language="json")
-                st.code(str(trend_task.output), language="text")
-                st.code(str(author_task.output), language="text")
-
                 # Display Papers
                 st.markdown("## 📚 Latest Papers")
                 raw_output = str(fetch_task.output)
                 try:
-                    papers = ast.literal_eval(raw_output)
+                    papers = eval(raw_output) if raw_output.startswith("[{") else []
                 except:
                     papers = []
 
