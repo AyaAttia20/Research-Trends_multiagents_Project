@@ -20,44 +20,47 @@ from langchain.tools import Tool
 warnings.filterwarnings("ignore")
 
 # ----------------------------
-# Semantic Scholar API Wrapper
+# OpenAlex API Wrapper (No API key needed)
 # ----------------------------
-def fetch_semantic_scholar(topic):
-    api_key = st.secrets.get("S2_API_KEY") or "YOUR_API_KEY"
-    headers = {
-        "x-api-key": api_key,
-        "User-Agent": "Research-Trend-App"
+def fetch_openalex_papers(topic):
+    url = "https://api.openalex.org/works"
+    params = {
+        "search": topic,
+        "filter": "publication_year:2024",
+        "sort": "cited_by_count:desc",
+        "per-page": 10
     }
-    url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={topic}&limit=10&fields=title,abstract,url,authors"
-    response = requests.get(url, headers=headers)
-    try:
-        data = response.json()
-    except:
+
+    response = requests.get(url, params=params)
+    if response.status_code != 200:
         return []
 
+    data = response.json()
     results = []
-    for paper in data.get("data", []):
+    for paper in data.get("results", []):
         title = paper.get("title", "Untitled")
-        abstract = paper.get("abstract") or "⚠️ Abstract not available. See full paper for details."
-        authors = [a.get("name") for a in paper.get("authors", [])]
-        paper_url = paper.get("url")
+        abstract = paper.get("abstract_inverted_index")
+        abstract_text = " ".join(abstract.keys()) if abstract else "⚠️ Abstract not available. See full paper for details."
+        authorships = paper.get("authorships", [])
+        authors = [auth["author"]["display_name"] for auth in authorships]
+        paper_url = paper.get("id")
 
         results.append({
             "title": title,
-            "summary": abstract,
+            "summary": abstract_text,
             "authors": authors,
             "url": paper_url
         })
 
     return results
-    
+
 
 def fetch_wrapper(input):
     if isinstance(input, dict):
         topic = input.get("topic") or next(iter(input.values()))
     else:
         topic = input
-    return fetch_semantic_scholar(topic)
+    return fetch_openalex_papers(topic)
 
 # ----------------------------
 # Streamlit UI
@@ -92,9 +95,9 @@ if run_button:
             # Agents & Tools
             # ---------------
             tool = Tool(
-                name="SemanticScholarFetcher",
+                name="OpenAlexFetcher",
                 func=fetch_wrapper,
-                description="Fetches latest research papers using Semantic Scholar API",
+                description="Fetches latest research papers using OpenAlex API",
                 return_direct=True
             )
 
