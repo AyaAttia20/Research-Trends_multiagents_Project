@@ -1,7 +1,7 @@
 # Core LLM and agent orchestration
 crewai==0.30.5
 langchain>=0.1.10,<0.2.0
-openai>=1.0.0
+openrouter
 
 # SQLite compatibility for langchain agents
 pysqlite3-binary
@@ -12,7 +12,7 @@ unstructured
 requests>=2.28,<2.32
 feedparser
 
-# Tokenization and embeddings
+# Tokenization and embeddings (optional but useful)
 tiktoken
 
 # Local embedding DB (optional use with langchain)
