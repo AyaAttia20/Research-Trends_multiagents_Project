@@ -14,7 +14,7 @@ import ast
 
 # CrewAI & LangChain
 from crewai import Agent, Task, Crew
-from langchain.chat_models import ChatOpenRouter  # <-- Updated here
+from langchain.chat_models import ChatOpenAI
 from langchain.tools import Tool
 
 warnings.filterwarnings("ignore")
@@ -78,11 +78,12 @@ if run_button:
         with st.spinner("Running multi-agent crew..."):
 
             try:
-                llm = ChatOpenRouter(  # <-- Updated here
-                    model="openai/gpt-3.5-turbo",
-                    api_key=api_key,
-                    temperature=0.7
-                )
+                llm = ChatOpenAI(
+                            model_name="openai/gpt-3.5-turbo",
+                            base_url="https://openrouter.ai/api/v1",
+                            api_key=api_key,
+                            temperature=0.7
+                        )
             except Exception as e:
                 st.error(f"❌ Failed to initialize LLM: {str(e)}")
                 st.stop()
