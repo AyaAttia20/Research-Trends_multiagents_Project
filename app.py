@@ -10,10 +10,11 @@ import warnings
 import pandas as pd
 import plotly.express as px
 import re
+import ast
 
 # CrewAI & LangChain
 from crewai import Agent, Task, Crew
-from langchain.chat_models import ChatOpenAI
+from langchain.chat_models import ChatOpenRouter  # <-- Updated here
 from langchain.tools import Tool
 
 warnings.filterwarnings("ignore")
@@ -25,7 +26,7 @@ def fetch_openalex(topic):
     url = "https://api.openalex.org/works"
     params = {
         "search": topic,
-        "filter": "publication_year:2024",
+        "filter": "publication_year:2025",
         "sort": "cited_by_count:desc",
         "per-page": 10
     }
@@ -77,9 +78,8 @@ if run_button:
         with st.spinner("Running multi-agent crew..."):
 
             try:
-                llm = ChatOpenAI(
-                    model_name="mistralai/mistral-7b-instruct",
-                    base_url="https://openrouter.ai/api/v1",
+                llm = ChatOpenRouter(  # <-- Updated here
+                    model="openai/gpt-3.5-turbo",
                     api_key=api_key,
                     temperature=0.7
                 )
@@ -150,11 +150,17 @@ if run_button:
                 result = crew.kickoff(inputs=inputs)
                 st.success("✅ Analysis Complete!")
 
+                # Optional debug: show raw outputs
+                st.subheader("🪵 Raw Agent Outputs (Debug)")
+                st.code(str(fetch_task.output), language="json")
+                st.code(str(trend_task.output), language="text")
+                st.code(str(author_task.output), language="text")
+
                 # Display Papers
                 st.markdown("## 📚 Latest Papers")
                 raw_output = str(fetch_task.output)
                 try:
-                    papers = eval(raw_output) if raw_output.startswith("[{") else []
+                    papers = ast.literal_eval(raw_output)
                 except:
                     papers = []
 
