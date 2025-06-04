@@ -23,20 +23,34 @@ warnings.filterwarnings("ignore")
 # Semantic Scholar API Wrapper
 # ----------------------------
 def fetch_semantic_scholar(topic):
+    api_key = st.secrets.get("S2_API_KEY") or "YOUR_API_KEY"
+    headers = {
+        "x-api-key": api_key,
+        "User-Agent": "Research-Trend-App"
+    }
     url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={topic}&limit=10&fields=title,abstract,url,authors"
-    headers = {"User-Agent": "Research-Trend-App"}
     response = requests.get(url, headers=headers)
-    data = response.json()
+    try:
+        data = response.json()
+    except:
+        return []
 
     results = []
     for paper in data.get("data", []):
+        title = paper.get("title", "Untitled")
+        abstract = paper.get("abstract") or "⚠️ Abstract not available. See full paper for details."
+        authors = [a.get("name") for a in paper.get("authors", [])]
+        paper_url = paper.get("url")
+
         results.append({
-            "title": paper.get("title"),
-            "summary": paper.get("abstract") or "No abstract available.",
-            "authors": [author.get("name") for author in paper.get("authors", [])],
-            "url": paper.get("url")
+            "title": title,
+            "summary": abstract,
+            "authors": authors,
+            "url": paper_url
         })
+
     return results
+    
 
 def fetch_wrapper(input):
     if isinstance(input, dict):
