@@ -1,26 +1,33 @@
+# Ensure pysqlite3 compatibility with LangChain
 import sys
 import pysqlite3
 sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
 
+# Core imports
 import streamlit as st
 import requests
 import warnings
-from crewai import Agent, Task, Crew
-from langchain.chat_models import ChatOpenAI
-from langchain.tools import Tool
-
 import pandas as pd
 import plotly.express as px
 import re
 
+# CrewAI & LangChain
+from crewai import Agent, Task, Crew
+from langchain.chat_models import ChatOpenAI
+from langchain.tools import Tool
+
+# Ignore warnings
 warnings.filterwarnings("ignore")
 
-# Semantic Scholar API instead of arXiv
+# ----------------------------
+# Semantic Scholar API Wrapper
+# ----------------------------
 def fetch_semantic_scholar(topic):
     url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={topic}&limit=10&fields=title,abstract,url,authors"
     headers = {"User-Agent": "Research-Trend-App"}
     response = requests.get(url, headers=headers)
     data = response.json()
+
     results = []
     for paper in data.get("data", []):
         results.append({
@@ -38,8 +45,9 @@ def fetch_wrapper(input):
         topic = input
     return fetch_semantic_scholar(topic)
 
-
+# ----------------------------
 # Streamlit UI
+# ----------------------------
 st.set_page_config(page_title="Research Trends Tracker", layout="wide")
 st.title("🔬 Research Trends Tracker")
 
@@ -66,7 +74,9 @@ if run_button:
                 st.error(f"❌ Failed to initialize LLM: {str(e)}")
                 st.stop()
 
-            # Tool & Agents
+            # ---------------
+            # Agents & Tools
+            # ---------------
             tool = Tool(
                 name="SemanticScholarFetcher",
                 func=fetch_wrapper,
@@ -99,7 +109,9 @@ if run_button:
                 llm=llm
             )
 
+            # ---------------
             # Tasks
+            # ---------------
             fetch_task = Task(
                 description=f"Fetch latest 10 research papers on '{topic}'.",
                 expected_output="List of papers with title, abstract, authors, and URL.",
@@ -126,13 +138,17 @@ if run_button:
                 verbose=True
             )
 
+            # ---------------
+            # Execute Crew
+            # ---------------
             try:
                 inputs = {"topic": topic}
                 result = crew.kickoff(inputs=inputs)
-
                 st.success("✅ Analysis Complete!")
 
-                # 1. Papers
+                # ---------------------
+                # Display: Latest Papers
+                # ---------------------
                 st.markdown("## 📚 Latest Papers")
                 raw_output = str(fetch_task.output)
                 try:
@@ -141,7 +157,7 @@ if run_button:
                     papers = []
 
                 if papers:
-                    for i, paper in enumerate(papers[:10]):
+                    for paper in papers[:10]:
                         with st.expander(f"📄 {paper['title']}"):
                             st.markdown(f"**🧠 Abstract:** {paper['summary']}")
                             st.markdown(f"**✍️ Authors:** {', '.join(paper['authors'])}")
@@ -149,7 +165,9 @@ if run_button:
                 else:
                     st.warning("⚠️ Could not parse papers.")
 
-                # 2. Trending Keywords
+                # ------------------------
+                # Display: Trending Keywords
+                # ------------------------
                 st.markdown("## 📈 Trending Keywords")
                 trend_text = str(trend_task.output)
                 trend_lines = trend_text.strip().split("\n")
@@ -167,7 +185,9 @@ if run_button:
                 else:
                     st.info("⚠️ No keywords found to visualize.")
 
-                # 3. Top Authors
+                # ----------------------------
+                # Display: Top Authors
+                # ----------------------------
                 st.markdown("## 👩‍🔬 Top Authors and Institutions")
                 author_lines = str(author_task.output).split("\n")
                 shown = 0
